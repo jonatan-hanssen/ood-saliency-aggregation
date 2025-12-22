@@ -1,0 +1,16 @@
+[project]
+name = "ood-saliency-aggregation"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "captum>=0.8.0",
+    "numpy>=1.26.4",
+    "openood",
+    "scikit-learn>=1.8.0",
+    "torch>=2.9.1",
+]
+
+[tool.uv.sources]
+openood = { git = "https://github.com/Jingkang50/OpenOOD", rev = "3c35632" }
