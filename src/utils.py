@@ -4,32 +4,111 @@ import math
 import captum
 import numpy as np
 import torch
+import os
+import gdown
 from sklearn.linear_model import LinearRegression
+import shutil
+
+from openood.networks import (
+    ResNet18_32x32,
+    ResNet18_224x224,
+    ResNet50,
+)
+
+URLS = {
+    'cifar10': '1byGeYxM_PlLjT72wZsMQvP6popJeWBgt',
+    'cifar100': '1s-1oNrRtmA0pGefxXJOUVRYpaoAML0C-',
+    'imagenet200': '1ddVmwc8zmzSjdLUO84EuV4Gz1c7vhIAs',
+    'imagenet': '15PdDMNRfnJ7f2oxW6lI-Ge4QJJH3Z0Fy',
+}
+
+checkpoint_paths = {
+    'cifar10': 'cifar10_resnet18_32x32_base_e100_lr0.1_default/s0/best.ckpt',
+    'cifar100': 'cifar100_resnet18_32x32_base_e100_lr0.1_default/s0/best.ckpt',
+    'imagenet200': 'imagenet200_resnet18_224x224_base_e90_lr0.1_default/s0/best.ckpt',
+    'imagenet': '15PdDMNRfnJ7f2oxW6lI-Ge4QJJH3Z0Fy',
+}
+
+STORE_PATH = './results/checkpoints'
 
 
-def get_aggregate_function(name: str):
-    if name == 'mean':
-        return torch.sum
-    elif name == 'median':
-        return lambda data, _: torch.median(data, dim=-1)[0]
-    elif name == 'norm':
-        return torch.linalg.vector_norm
-    elif name == 'range':
-        return lambda data, _: torch.max(data, dim=-1)[0] - torch.min(data, dim=-1)[0]
-    elif name == 'max':
-        return lambda data, _: torch.max(data, dim=-1)[0]
-    elif name == 'q3':
-        return lambda data, _: np.quantile(data, 0.75, axis=-1)
-    elif name == 'cv':
-        return lambda data, _: torch.std(data, dim=-1) / torch.where(
-            torch.mean(data, dim=-1) != 0, torch.mean(data, dim=-1), 1e-10
+def get_network(id_name: str, device_str: str):
+    device = torch.device(device_str)
+    match id_name:
+        case 'cifar10':
+            net = ResNet18_32x32(num_classes=10)
+        case 'imagenet':
+            net = ResNet50(num_classes=1000)
+        case 'imagenet200':
+            net = ResNet18_224x224(num_classes=200)
+        case 'cifar100':
+            net = ResNet18_32x32(num_classes=100)
+        case _:
+            raise ValueError('No such dataset')
+
+    if not os.path.exists(os.path.join(STORE_PATH, checkpoint_paths[id_name])):
+        print('Downloading pretrained weights...')
+        os.makedirs(STORE_PATH, exist_ok=True)
+        file_path = os.path.join(STORE_PATH, 'temp.zip')
+        gdown.download(id=URLS[id_name], output=file_path)
+        shutil.unpack_archive(file_path, STORE_PATH)
+        os.remove(file_path)
+
+    net.load_state_dict(
+        torch.load(
+            os.path.join(STORE_PATH, checkpoint_paths[id_name]), map_location=device
         )
-    elif name == 'rmd':
-        return rmd
-    elif name == 'qcd':
-        return qcd
-    else:
-        raise ValueError
+    )
+
+    net = net.to(device)
+    net.eval()
+    return net
+
+
+def get_aggregate_function(name: str) -> Callable[[torch.Tensor], torch.Tensor]:
+    """Get an aggregation function over the batch dimension based on the provided name.
+
+    Args:
+        name (str): The name of the aggregation function. Supported names are:
+            - 'mean': Computes the sum of the data.
+            - 'median': Computes the median of the data.
+            - 'norm': Computes the vector norm of the data.
+            - 'range': Computes the range (max - min) of the data.
+            - 'max': Computes the maximum value of the data.
+            - 'q3': Computes the third quartile (75th percentile) of the data.
+            - 'cv': Computes the coefficient of variation (std / mean) of the data.
+            - 'rmd': Computes the relative mean deviation of the data.
+            - 'qcd': Computes the quartile coefficient of dispersion of the data.
+
+    Returns:
+        Callable: A function that takes a tensor as input and returns the aggregated result.
+
+    Raises:
+        ValueError: If the provided name is not supported.
+    """
+    match name:
+        case 'mean':
+            return lambda data: torch.mean(data, dim=-1)
+        case 'median':
+            return lambda data: torch.median(data, dim=-1)[0]
+        case 'norm':
+            return lambda data: torch.linalg.vector_norm(data, dim=-1)
+        case 'range':
+            return lambda data: torch.max(data, dim=-1)[0] - torch.min(data, dim=-1)[0]
+        case 'max':
+            return lambda data: torch.max(data, dim=-1)[0]
+        case 'q3':
+            return lambda data: np.quantile(data, 0.75, axis=-1)
+        case 'cv':
+            return lambda data: torch.std(data, dim=-1) / torch.where(
+                torch.mean(data, dim=-1) != 0, torch.mean(data, dim=-1), 1e-10
+            )
+        case 'rmd':
+            return rmd
+        case 'qcd':
+            return qcd
+        case _:
+            raise ValueError(f'No such aggregate function: {name}')
 
 
 def get_saliency_generator(
@@ -180,7 +259,7 @@ class GradCAMWrapper(torch.nn.Module):
             handle.remove()
 
 
-def rmd(saliencies, dim=-1):
+def rmd(saliencies):
     """Calculate the Gini coefficient of a numpy array."""
     # based on bottom eq: http://www.statsdirect.com/help/content/image/stat0206_wmf.gif
     # from: http://www.statsdirect.com/help/default.htm#nonparametric_methods/gini.htm
@@ -212,7 +291,6 @@ def lime_explanation(
     repeats=8,
     kernel_width=0.25,
     do_relu=False,
-    device='cuda',
 ):
     preds = net(batch)
     max_pred_ind = torch.argmax(preds, dim=1)
@@ -280,7 +358,7 @@ def create_batch_masks(segmentation, batch_segment_values):
     return batch_masks
 
 
-def occlusion(net, batch, repeats=8, do_relu=False, device='cuda'):
+def occlusion(net, batch, repeats=8, do_relu=False):
     preds = net(batch)
     preds = torch.nn.functional.softmax(preds, dim=1)
 
@@ -356,7 +434,7 @@ def occlude_images(batch, block_size=4):
     return masked_images
 
 
-def qcd(data, dim=-1):
+def qcd(data):
     q1 = np.quantile(data, 0.25, axis=-1)
     q3 = np.quantile(data, 0.75, axis=-1)
 

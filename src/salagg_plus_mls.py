@@ -3,6 +3,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 from typing import Callable, Any
+from torch.utils.data import DataLoader
 
 from openood.postprocessors.base_postprocessor import BasePostprocessor
 
@@ -11,20 +12,27 @@ class SalAggPlusMLS(BasePostprocessor):
     def __init__(
         self,
         config,
-        saliency_generator: Callable[[torch.tensor], torch.tensor],
-        aggregator: Callable[[torch.tensor], torch.tensor],
+        saliency_generator: Callable[[torch.Tensor], torch.Tensor],
+        aggregator: Callable[[torch.Tensor], torch.Tensor],
+        device_str: str = 'cuda',
     ):
         super().__init__(config)
         self.setup_flag = False
         self.APS_mode = False
         self.saliency_generator = saliency_generator
         self.aggregator = aggregator
+        self.device = torch.device(device_str)
 
-        self.logit_std: torch.tensor = None
-        self.saliency_std: torch.tensor = None
-        self.sign: torch.tensor = None
+        self.logit_std = None
+        self.saliency_std = None
+        self.sign = None
 
-    def setup(self, net: nn.Module, id_loader_dict, ood_loader_dict):
+    def setup(
+        self,
+        net: nn.Module,
+        id_loader_dict: dict[str, DataLoader],
+        ood_loader_dict: dict[str, DataLoader],
+    ):
         if not self.setup_flag:
             net.eval()
 
@@ -34,16 +42,16 @@ class SalAggPlusMLS(BasePostprocessor):
             for batch in tqdm(
                 id_loader_dict['val'], desc='ID Setup: ', position=0, leave=True
             ):
-                data = batch['data'].cuda()
+                data = batch['data'].to(self.device)
 
                 max_logits, _ = torch.max(net(data), dim=-1)
                 saliencies = self.saliency_generator(data)
                 saliencies = saliencies.reshape(
                     saliencies.shape[0],
-                    torch.prod(torch.tensor(saliencies.shape[1:])),
+                    int(torch.prod(torch.tensor(saliencies.shape[1:]))),
                 )
 
-                aggregate = self.aggregator(saliencies, dim=-1)
+                aggregate = self.aggregator(saliencies)
 
                 max_logits = max_logits.detach().cpu()
 
@@ -59,15 +67,15 @@ class SalAggPlusMLS(BasePostprocessor):
             for batch in tqdm(
                 ood_loader_dict['val'], desc='OOD Setup: ', position=0, leave=True
             ):
-                data = batch['data'].cuda()
+                data = batch['data'].to(self.device)
 
                 saliencies = self.saliency_generator(data)
                 saliencies = saliencies.reshape(
                     saliencies.shape[0],
-                    torch.prod(torch.tensor(saliencies.shape[1:])),
+                    int(torch.prod(torch.tensor(saliencies.shape[1:]))),
                 )
 
-                aggregate = self.aggregator(saliencies, dim=-1)
+                aggregate = self.aggregator(saliencies)
 
                 all_saliency_aggregates.append(aggregate)
 
@@ -79,15 +87,20 @@ class SalAggPlusMLS(BasePostprocessor):
             pass
 
     def postprocess(self, net: nn.Module, data: Any):
+        assert self.logit_std is not None
+        assert self.saliency_std is not None
+        assert self.sign is not None
+
+        data = data.to(self.device)
         max_logits, preds = torch.max(net(data), dim=-1)
 
         saliencies = self.saliency_generator(data)
         saliencies = saliencies.reshape(
             saliencies.shape[0],
-            torch.prod(torch.tensor(saliencies.shape[1:])),
+            int(torch.prod(torch.tensor(saliencies.shape[1:]))),
         )
 
-        aggregate = self.aggregator(saliencies, dim=-1)
+        aggregate = self.aggregator(saliencies)
 
         max_logits = max_logits.detach().cpu()
         preds = preds.detach().cpu()
