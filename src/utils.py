@@ -115,8 +115,6 @@ def get_aggregate_function(name: str) -> Callable[[torch.Tensor], torch.Tensor]:
 def get_saliency_generator(
     name: str,
     net: torch.nn.Module,
-    repeats: int = 4,
-    relu: bool = False,
 ) -> Callable:
     if name == 'gradcam':
         cam_wrapper = GradCAMWrapper(
@@ -126,7 +124,7 @@ def get_saliency_generator(
 
     elif name == 'lime':
         generator_func = lambda data: lime_explanation(
-            net, data, repeats=repeats, do_relu=relu
+            net, data, repeats=4, do_relu=False
         )
 
     elif name == 'integratedgradients':
@@ -148,7 +146,7 @@ def get_saliency_generator(
 
             attributions = gbp.attribute(data, target=targets)
 
-            attributions = attributions.sum(dim=1).detach().cpu()
+            attributions = attributions.detach().cpu()
 
             return attributions
 
@@ -158,7 +156,7 @@ def get_saliency_generator(
             targets = torch.argmax(net(data), dim=-1)
             lrp = captum.attr.Occlusion(net)
 
-            block_size = data.shape[-1] // repeats
+            block_size = data.shape[-1] // 4
 
             attributions = lrp.attribute(
                 data,

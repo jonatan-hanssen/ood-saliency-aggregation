@@ -8,10 +8,38 @@ from openood.evaluation_api import Evaluator
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataset', '-d', type=str, default='cifar100')
-    parser.add_argument('--saliency_generator', '-s', type=str, default='gbp')
+    parser.add_argument(
+        '--dataset',
+        '-d',
+        default='cifar10',
+        nargs='?',
+        choices=['cifar10', 'cifar100', 'imagenet200', 'imagenet'],
+    )
+    parser.add_argument(
+        '--saliency_generator',
+        '-s',
+        default='gbp',
+        nargs='?',
+        choices=['gbp', 'gradcam', 'lime', 'occlusion', 'integratedgradients'],
+    )
+    parser.add_argument(
+        '--aggregator',
+        '-a',
+        default='norm',
+        nargs='?',
+        choices=[
+            'mean',
+            'median',
+            'norm',
+            'range',
+            'max',
+            'q3',
+            'cv',
+            'rmd',
+            'qcd',
+        ],
+    )
     parser.add_argument('--batch_size', '-b', type=int, default=200)
-    parser.add_argument('--aggregator', '-a', type=str, default='norm')
     parser.add_argument('--device', type=str, default='cpu')
     args = parser.parse_args()
 
