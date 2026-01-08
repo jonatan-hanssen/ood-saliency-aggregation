@@ -9,8 +9,9 @@ import gdown
 from sklearn.linear_model import LinearRegression
 import shutil
 
+from .resnet18_32_patched import ResNet18_32x32
+
 from openood.networks import (
-    ResNet18_32x32,
     ResNet18_224x224,
     ResNet50,
 )
