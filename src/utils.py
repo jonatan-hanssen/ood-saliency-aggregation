@@ -27,7 +27,7 @@ checkpoint_paths = {
     'cifar10': 'cifar10_resnet18_32x32_base_e100_lr0.1_default/s0/best.ckpt',
     'cifar100': 'cifar100_resnet18_32x32_base_e100_lr0.1_default/s0/best.ckpt',
     'imagenet200': 'imagenet200_resnet18_224x224_base_e90_lr0.1_default/s0/best.ckpt',
-    'imagenet': '15PdDMNRfnJ7f2oxW6lI-Ge4QJJH3Z0Fy',
+    'imagenet': 'pretrained_weights/resnet50_imagenet1k_v1.pth',
 }
 
 STORE_PATH = './results/checkpoints'
