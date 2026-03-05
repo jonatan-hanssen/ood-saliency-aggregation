@@ -181,8 +181,8 @@ def get_saliency_generator(
 class GradCAMWrapper(torch.nn.Module):
     def __init__(
         self,
-        model=None,
-        target_layer=None,
+        model,
+        target_layer,
         do_relu=False,
         subtype=None,
         normalize=False,
